@@ -112,13 +112,15 @@ public class DatabaseManager {
 
             String sql = "INSERT INTO students(s_id, s_name, age, email) VALUES(?,?,?,?)";
 
-            PreparedStatement ps = connection.prepareStatement(sql);
-            ps.setString(1,student.getId());
-            ps.setString(2,student.getName());
-            ps.setInt(3,student.getAge());
-            ps.setString(4,student.getEmail());
+            try (PreparedStatement ps = connection.prepareStatement(sql)){
+                ps.setString(1,student.getId());
+                ps.setString(2,student.getName());
+                ps.setInt(3,student.getAge());
+                ps.setString(4,student.getEmail());
 
-            ps.executeUpdate();
+                ps.executeUpdate();
+            }
+
     }
 
     public void deleteStudent(String id) throws SQLException{
@@ -127,13 +129,26 @@ public class DatabaseManager {
 
         String studentSQL = "DELETE FROM students WHERE s_id = ?";
 
-        PreparedStatement deleteEnrollmentStudent = connection.prepareStatement(enrollmentStudentSQL);
-        deleteEnrollmentStudent.setString(1,id);
-        deleteEnrollmentStudent.executeUpdate();
+        boolean originalAutoCommit = connection.getAutoCommit();
 
-        PreparedStatement deleteStudent = connection.prepareStatement(studentSQL);
-        deleteStudent.setString(1, id);
-        deleteStudent.executeUpdate();
+        try (PreparedStatement deleteEnrollmentStudent = connection.prepareStatement(enrollmentStudentSQL);
+             PreparedStatement deleteStudent = connection.prepareStatement(studentSQL);) {
+            connection.setAutoCommit(false);
+
+            deleteEnrollmentStudent.setString(1,id);
+            deleteEnrollmentStudent.executeUpdate();
+
+            deleteStudent.setString(1, id);
+            deleteStudent.executeUpdate();
+
+            connection.commit();
+
+        } catch (SQLException e){
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(originalAutoCommit);
+        }
     }
 
     public void viewAllStudents(){
@@ -145,11 +160,14 @@ public class DatabaseManager {
                 ID         Name                                Age      Email
                 =============================================================================
                 """);
-        try {
-            Statement st = connection.createStatement();
-            ResultSet rs = st.executeQuery(sql);
+        boolean found = false;
+
+        try (Statement st = connection.createStatement();
+             ResultSet rs = st.executeQuery(sql);){
 
             while (rs.next()){
+                found = true;
+
                 String id = rs.getString("s_id");
                 String name = rs.getString("s_name");
                 int age = rs.getInt("age");
@@ -158,11 +176,14 @@ public class DatabaseManager {
                 System.out.printf("%-10s %-35s %-8d %-23s\n",
                         id, name, age, email);
             }
-            return;
+
         } catch (SQLException e){
             System.out.println();
         }
-        System.out.println("No Student Exist.");
+        if (!found){
+            System.out.println("No Student Exist.");
+        }
+
     }
 
     // ================== StudentManager (End) ====================
@@ -173,17 +194,18 @@ public class DatabaseManager {
 
         String sql = "SELECT * FROM courses WHERE c_id = ?";
 
-        try {
-            PreparedStatement ps = connection.prepareStatement(sql);
+        try (PreparedStatement ps = connection.prepareStatement(sql);){
+
             ps.setString(1,id);
-            ResultSet rs = ps.executeQuery();
 
-            while (rs.next()){
-                String c_id = rs.getString("c_id");
-                String name = rs.getString("c_name");
-                int credit = rs.getInt("credit");
+            try (ResultSet rs = ps.executeQuery();){
+                if (rs.next()){
+                    String c_id = rs.getString("c_id");
+                    String name = rs.getString("c_name");
+                    int credit = rs.getInt("credit");
 
-                return new Course(c_id, name, credit);
+                    return new Course(c_id, name, credit);
+                }
             }
 
         } catch (SQLException e){
@@ -196,12 +218,10 @@ public class DatabaseManager {
 
         String sql = "SELECT c_id FROM courses ORDER BY c_id DESC LIMIT 1";
 
-        try {
+        try (Statement st = connection.createStatement();
+             ResultSet rs = st.executeQuery(sql);){
 
-            Statement st = connection.createStatement();
-            ResultSet rs = st.executeQuery(sql);
-
-            while (rs.next()){
+            if (rs.next()){
                 String id = rs.getString("c_id");
                 int idValue = Integer.parseInt(id.substring(1));
                 idValue += 1;
@@ -211,6 +231,7 @@ public class DatabaseManager {
 
         } catch (SQLException e){
             e.printStackTrace();
+            return null;
         }
         return "c001";
     }
@@ -219,12 +240,14 @@ public class DatabaseManager {
 
         String sql = "INSERT INTO courses (c_id, c_name, credit) VALUES (?,?,?)";
 
-        PreparedStatement ps = connection.prepareStatement(sql);
-        ps.setString(1, course.getId());
-        ps.setString(2, course.getName());
-        ps.setInt(3,course.getCredit());
+        try (PreparedStatement ps = connection.prepareStatement(sql);){
+            ps.setString(1, course.getId());
+            ps.setString(2, course.getName());
+            ps.setInt(3,course.getCredit());
 
-        ps.executeUpdate();
+            ps.executeUpdate();
+        }
+
     }
 
     public void deleteCourse(Course course) throws SQLException {
@@ -232,15 +255,31 @@ public class DatabaseManager {
         String enrollmentCourseSQL = "DELETE FROM enrollment WHERE c_id = ?";
         String courseSQL = "DELETE FROM courses WHERE c_id = ?";
 
-        PreparedStatement deleteEnrollmentCourse = connection.prepareStatement(enrollmentCourseSQL);
-        deleteEnrollmentCourse.setString(1, course.getId());
+        boolean status = connection.getAutoCommit();
 
-        PreparedStatement deleteCourse = connection.prepareStatement(courseSQL);
-        deleteCourse.setString(1, course.getId());
+        try (PreparedStatement deleteEnrollmentCourse = connection.prepareStatement(enrollmentCourseSQL);
+             PreparedStatement deleteCourse = connection.prepareStatement(courseSQL);){
 
+            connection.setAutoCommit(false);
 
-        deleteEnrollmentCourse.executeUpdate();
-        deleteCourse.executeUpdate();
+            deleteEnrollmentCourse.setString(1, course.getId());
+            deleteCourse.setString(1, course.getId());
+
+            deleteEnrollmentCourse.executeUpdate();
+            deleteCourse.executeUpdate();
+
+            connection.commit();
+        } catch (SQLException e){
+            try {
+                connection.rollback();
+            } catch (SQLException rollBackException){
+                e.addSuppressed(rollBackException);
+            }
+            throw e;
+        } finally {
+            connection.setAutoCommit(status);
+        }
+
     }
 
     public void viewAllCourses(){
